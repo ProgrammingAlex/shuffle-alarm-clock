@@ -18,6 +18,7 @@
 #include "player.h"
 #include "storage.h"
 #include "timekeeper.h"
+#include "updater.h"
 #include "webui.h"
 
 namespace {
@@ -282,6 +283,7 @@ void drawScreen() {
   info.sdOk = Player::sdOk();
   info.songCount = Player::songCount();
   info.previewing = s_state == AppState::Preview;
+  if (Updater::progress() >= 0) info.updateMsg = "Updating " + String(Updater::progress()) + "%";
   {
     std::lock_guard<std::mutex> lock(s_appMutex);
     info.alarmLabel = s_label;
@@ -340,6 +342,7 @@ void setup() {
   TimeKeeper::begin();
   Player::begin();
   Net::begin();
+  Updater::begin();
   WebUI::begin();
 }
 
@@ -348,6 +351,7 @@ void loop() {
   TimeKeeper::loop();
   Player::loop();
   WebUI::loop();
+  Updater::loop();
   handleMessages();
   handleButtons();
   checkAlarms();

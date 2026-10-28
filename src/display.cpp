@@ -185,7 +185,8 @@ void drawStatusRow(LGFX_Sprite& c, const ScreenInfo& s) {
   if (!s.wifiConnected) warn = "No Wi-Fi";
   if (!s.sdOk) warn += String(warn.length() ? "  -  " : "") + "No SD card";
   else if (s.songCount == 0) warn += String(warn.length() ? "  -  " : "") + "No songs (beep)";
-  if (warn.length()) drawCentered(c, warn, 14, &fonts::FreeSans9pt7b, C_WARN);
+  if (s.updateMsg.length()) drawCentered(c, s.updateMsg, 14, &fonts::FreeSans9pt7b, C_ACCENT);
+  else if (warn.length()) drawCentered(c, warn, 14, &fonts::FreeSans9pt7b, C_WARN);
 }
 
 void drawNormal(LGFX_Sprite& c, const ScreenInfo& s) {
@@ -287,7 +288,8 @@ String signature(const ScreenInfo& s) {
   sig += s.wifiConnected; sig += s.sdOk; sig += s.previewing; sig += s.use24h; sig += '|';
   sig += (int)s.songCount; sig += '|';
   sig += s.wifiName; sig += '|';
-  sig += s.ip;
+  sig += s.ip; sig += '|';
+  sig += s.updateMsg;
   return sig;
 }
 

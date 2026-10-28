@@ -63,4 +63,12 @@
 #define MAX_ALARMS       8
 #define RING_TIMEOUT_MIN 30         // stop ringing on its own after this long
 
+// ---------- Updates ----------
+// Release builds get their version from the git tag (see .github/workflows).
+#ifndef FIRMWARE_VERSION
 #define FIRMWARE_VERSION "1.0.0"
+#endif
+#define GITHUB_REPO     "ProgrammingAlex/shuffle-alarm-clock"  // public repo with the releases
+#define FIRMWARE_ASSET  "firmware.bin"   // file attached to each GitHub release
+#define UPDATE_HOUR     3                // nightly update check, local time
+#define UPDATE_MINUTE   30

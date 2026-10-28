@@ -1,0 +1,45 @@
+# Builds the firmware and publishes it as a GitHub Release whenever a version
+# tag is pushed (for example: git tag v1.0.1 && git push origin v1.0.1).
+# Clocks check for new releases every night and install them on their own.
+name: Release firmware
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Building version $VERSION"
+          export PLATFORMIO_BUILD_FLAGS="-DFIRMWARE_VERSION=\\\"${VERSION}\\\""
+          pio run
+          cp .pio/build/alarmclock/firmware.bin firmware.bin
+          cp .pio/build/alarmclock/firmware.factory.bin firmware-factory.bin
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            firmware.bin
+            firmware-factory.bin
+          generate_release_notes: true

@@ -12,6 +12,7 @@
 #include "player.h"
 #include "storage.h"
 #include "timekeeper.h"
+#include "updater.h"
 #include "web_page.h"
 
 namespace {
@@ -218,6 +219,11 @@ void setupRoutes() {
     doc["rtc"] = TimeKeeper::rtcPresent();
     doc["ntp"] = TimeKeeper::ntpSynced();
     doc["version"] = FIRMWARE_VERSION;
+    JsonObject upd = doc["update"].to<JsonObject>();
+    upd["status"] = Updater::status();
+    upd["latest"] = Updater::latestVersion();
+    upd["busy"] = Updater::busy();
+    upd["progress"] = Updater::progress();
     sendJson(r, doc);
   });
 
@@ -306,6 +312,10 @@ void setupRoutes() {
   });
 
   // Firmware
+  addJsonPost("/api/update-check", [](AsyncWebServerRequest* r, JsonVariant&) {
+    Updater::requestCheck();
+    sendOk(r);
+  });
   s_server.on("/api/update", HTTP_POST, firmwareDone, firmwareChunk);
 
   // Anything else: on the setup hotspot, send phones to the setup page

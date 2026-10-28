@@ -206,11 +206,14 @@ select,input[type=text],input[type=password]{width:100%;min-height:46px;padding:
     <div class="card" style="margin-top:12px">
       <h3>Device</h3>
       <div class="muted small" id="devInfo"></div>
-      <div class="row" style="margin-top:14px">
+      <div class="muted small" id="updStatus" style="margin-top:10px"></div>
+      <button class="btn wide" id="btnUpdate" style="margin-top:12px">Check for updates</button>
+      <div class="row" style="margin-top:10px">
         <button class="btn" id="btnWifi">Change Wi-Fi</button>
-        <label class="btn">Update firmware<input id="fwInput" type="file" accept=".bin" hidden></label>
+        <label class="btn">Install file<input id="fwInput" type="file" accept=".bin" hidden></label>
       </div>
       <div class="muted small" id="fwStatus" style="margin-top:8px"></div>
+      <p class="muted small" style="margin-bottom:0">Updates install by themselves at night. They never run while an alarm is going off or within an hour of one.</p>
     </div>
   </section>
 </div>
@@ -318,6 +321,12 @@ async function poll() {
       "<br>Time source: " + (st.ntp ? "internet" : st.rtc ? "backup clock chip" : "not set yet") +
       (st.rtc ? "" : " - no RTC chip found") +
       "<br>SD card: " + (st.sdOk ? "OK" : "not found") + " - Firmware v" + esc(st.version);
+    if (st.update) {
+      const u = st.update;
+      $("#updStatus").textContent = u.progress >= 0 ? "Installing update: " + u.progress + "%" : u.status;
+      $("#btnUpdate").disabled = !!u.busy;
+      $("#btnUpdate").textContent = u.busy ? "Checking..." : "Check for updates";
+    }
   } catch (e) {
     if (++failCount >= 2) $("#offline").classList.remove("hidden");
   }
@@ -487,6 +496,10 @@ $("#btnTest").onclick = async () => {
 };
 $("#btnSnooze").onclick = async () => { await api("/api/snooze", {}).catch(e => toast(e.message)); poll(); };
 $("#btnStop").onclick = async () => { await api("/api/stop", {}).catch(e => toast(e.message)); poll(); };
+$("#btnUpdate").onclick = async () => {
+  try { await api("/api/update-check", {}); toast("Checking for updates..."); setTimeout(poll, 800); }
+  catch (e) { toast(e.message); }
+};
 $("#btnWifi").onclick = async () => {
   if (!confirm("The clock will forget its Wi-Fi and restart into setup mode. Follow the steps on its screen to pick a new network. Continue?")) return;
   try { await api("/api/wifi-forget", {}); toast("Restarting into Wi-Fi setup..."); } catch (e) { toast(e.message); }

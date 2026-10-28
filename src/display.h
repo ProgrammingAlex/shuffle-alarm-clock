@@ -17,6 +17,7 @@ struct ScreenInfo {
   bool sdOk = true;
   size_t songCount = 0;
   bool previewing = false;
+  String updateMsg;           // "Updating 45%" while new firmware installs
   uint8_t brightness = 200;
 };
 
