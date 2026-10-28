@@ -5,6 +5,7 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <esp_ota_ops.h>
+#include <esp_heap_caps.h>
 #include <mutex>
 #include "config.h"
 #include "app.h"
@@ -71,6 +72,50 @@ namespace {
     return true;
   }
 
+  // Each secure connection needs about 40 KB of the ESP32's internal memory.
+  // These helpers close their connection completely before returning, so
+  // only one is ever open at a time. Before, the release-info connection
+  // stayed open during the download, which can run the ESP32 out of memory
+  // for the second connection ("connection refused").
+  int fetchReleaseInfo(String& body) {
+    NetworkClientSecure client;
+    client.useBuiltinCACertBundle();
+    HTTPClient http;
+    http.setReuse(false);
+    String url = String("https://api.github.com/repos/") + GITHUB_REPO + "/releases/latest";
+    if (!http.begin(client, url)) return HTTPC_ERROR_CONNECTION_REFUSED;
+    http.setUserAgent("shuffle-alarm-clock/" FIRMWARE_VERSION);
+    http.addHeader("Accept", "application/vnd.github+json");
+    http.setTimeout(15000);
+    int code = http.GET();
+    if (code == 200) body = http.getString();
+    http.end();
+    client.stop();
+    return code;
+  }
+
+  // Returns where a GitHub download link redirects to (or the link itself).
+  String resolveRedirect(const String& url) {
+    NetworkClientSecure client;
+    client.useBuiltinCACertBundle();
+    HTTPClient http;
+    http.setReuse(false);
+    http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+    String result = url;
+    if (http.begin(client, url)) {
+      const char* keys[] = {"Location"};
+      http.collectHeaders(keys, 1);
+      http.setUserAgent("shuffle-alarm-clock/" FIRMWARE_VERSION);
+      http.setTimeout(15000);
+      int code = http.sendRequest("HEAD");
+      String loc = http.header("Location");
+      if (code >= 300 && code < 400 && loc.startsWith("https://")) result = loc;
+      http.end();
+    }
+    client.stop();
+    return result;
+  }
+
   void runCheck() {
     if (!Net::connected()) {
       setStatus("No Wi-Fi, couldn't check for updates");
@@ -78,25 +123,14 @@ namespace {
     }
     setStatus("Checking for updates...");
 
-    NetworkClientSecure client;
-    client.useBuiltinCACertBundle();
-    HTTPClient http;
-    String url = String("https://api.github.com/repos/") + GITHUB_REPO + "/releases/latest";
-    if (!http.begin(client, url)) {
-      setStatus("Couldn't reach GitHub");
-      return;
-    }
-    http.setUserAgent("shuffle-alarm-clock/" FIRMWARE_VERSION);
-    http.addHeader("Accept", "application/vnd.github+json");
-    http.setTimeout(15000);
-    int code = http.GET();
+    String body;
+    int code = fetchReleaseInfo(body);
     if (code != 200) {
-      http.end();
-      setStatus(code == 404 ? String("No releases published yet") : "GitHub replied with error " + String(code));
+      if (code == 404) setStatus("No releases published yet");
+      else if (code < 0) setStatus("Couldn't reach GitHub (" + HTTPClient::errorToString(code) + ")");
+      else setStatus("GitHub replied with error " + String(code));
       return;
     }
-    String body = http.getString();
-    http.end();
 
     JsonDocument filter;
     filter["tag_name"] = true;
@@ -138,15 +172,20 @@ namespace {
     App::post(AppAction::StopPreview);
     s_prefs.putString("trying", tag);
 
+    // GitHub answers the download link with a redirect to its file server.
+    // Look that up first, so the download itself is one plain connection.
+    String fileUrl = resolveRedirect(binUrl);
+    Serial.printf("[update] downloading from %s\n", fileUrl.substring(0, 60).c_str());
+
     NetworkClientSecure dl;
     dl.useBuiltinCACertBundle();
-    httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);  // GitHub sends downloads via a redirect
+    httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);  // just in case there's another hop
     httpUpdate.rebootOnUpdate(false);
     httpUpdate.onProgress([](int cur, int total) {
       if (total > 0) s_progress = (int)((int64_t)cur * 100 / total);
     });
     s_progress = 0;
-    t_httpUpdate_return result = httpUpdate.update(dl, binUrl, FIRMWARE_VERSION);
+    t_httpUpdate_return result = httpUpdate.update(dl, fileUrl, FIRMWARE_VERSION);
     if (result == HTTP_UPDATE_OK) {
       s_progress = 100;
       setStatus("Installed v" + tag + ", restarting");
@@ -155,7 +194,14 @@ namespace {
     }
     s_progress = -1;
     s_prefs.remove("trying");
-    setStatus("Update failed: " + httpUpdate.getLastErrorString());
+    // Add the secure-connection error and free memory, so a failure says why
+    char tlsErr[100] = "";
+    dl.lastError(tlsErr, sizeof(tlsErr));
+    dl.stop();
+    String msg = "Update failed: " + httpUpdate.getLastErrorString();
+    if (tlsErr[0]) msg += String(" (") + tlsErr + ")";
+    msg += " [mem " + String(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024) + "k]";
+    setStatus(msg);
   }
 
   void updateTask(void*) {
