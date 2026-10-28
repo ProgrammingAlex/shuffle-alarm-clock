@@ -37,8 +37,26 @@ namespace {
 
   // ---------- audio task: the only code that touches the Audio object ----------
   void audioTask(void*) {
+    // Print the audio library's messages (decode errors, file problems) to
+    // the serial monitor, so a song that stutters or cuts out shows why.
+    Audio::audio_info_callback = [](Audio::msg_t m) {
+      if (!m.msg) return;
+      if (m.e != Audio::evt_info && m.e != Audio::evt_log && m.e != Audio::evt_eof) return;
+      Serial.printf("[audio] %s\n", m.msg);
+    };
     Audio* audio = new Audio();
+    // Bigger safety cushion of decoded sound (about 0.28 s instead of 0.19 s)
+    // so a short hiccup elsewhere doesn't turn into a gap you can hear.
+    audio->settings.DMA_DESC_NUM = 48;
+    // Skip the tone controls and level meter (not used) to save CPU time.
+    audio->settings.IIR_FILTER = false;
+    audio->settings.VU_LEVEL = false;
     audio->setPinout(PIN_I2S_BCLK, PIN_I2S_LRC, PIN_I2S_DOUT);
+    // The library decodes in its own task, by default on core 0, which it
+    // shares with Wi-Fi. Wi-Fi outranks it, so web page traffic (and song
+    // uploads especially) could starve it and make the music stutter.
+    // Core 1 only has this clock's own lower-priority code on it.
+    audio->setAudioTaskCore(1);
     audio->setVolumeSteps(100);
     // The amp's SD pin is driven HIGH to switch it on, which also makes it
     // play only the LEFT channel. Mix stereo songs into both channels first
@@ -226,7 +244,9 @@ void begin() {
   rescan();
 
   s_queue = xQueueCreate(8, sizeof(Cmd));
-  xTaskCreatePinnedToCore(audioTask, "audio", 8192, nullptr, 3, nullptr, 1);
+  // Priority 1: this task only refills the big file buffer (several seconds of
+  // music), so it must never hold up the library's decoder (priority 2).
+  xTaskCreatePinnedToCore(audioTask, "audio", 8192, nullptr, 1, nullptr, 1);
 }
 
 bool sdOk() { return s_sdOk; }
