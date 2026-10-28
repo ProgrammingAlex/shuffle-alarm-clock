@@ -211,6 +211,10 @@ void handleMessages() {
         startRinging("Test alarm");
         break;
       case AppAction::AlarmsChanged: break;  // screen picks up the new "next alarm" on its own
+      case AppAction::VolumeChanged:
+        // A ringing alarm picks up the new volume on its own (updateRinging)
+        if (s_state == AppState::Preview) Player::setVolume(settingsCopy().volume);
+        break;
     }
   }
 }

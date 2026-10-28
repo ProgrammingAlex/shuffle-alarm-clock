@@ -10,6 +10,7 @@ enum class AppAction : uint8_t {
   StopPreview,
   TestAlarm,     // ring right now, like a real alarm
   AlarmsChanged,
+  VolumeChanged, // volume setting changed: apply it to whatever is playing now
 };
 
 enum class AppState : uint8_t { Idle, Ringing, Snoozed, Preview };

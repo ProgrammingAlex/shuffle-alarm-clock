@@ -92,7 +92,7 @@ body{padding:env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-botto
 .field{display:block;margin:14px 0}
 .field>span{display:flex;justify-content:space-between;margin-bottom:6px}
 input[type=range]{width:100%;accent-color:var(--accent)}
-select,input[type=text],input[type=password]{width:100%;min-height:46px;padding:0 12px;border-radius:12px;
+select,input[type=text],input[type=password],input[type=search]{width:100%;min-height:46px;padding:0 12px;border-radius:12px;
   border:1px solid var(--line);background:var(--card2);color:var(--text);font:inherit}
 .two{display:flex;gap:10px;align-items:center}
 .two select{flex:1}
@@ -100,6 +100,18 @@ select,input[type=text],input[type=password]{width:100%;min-height:46px;padding:
 .upload{font-size:14px;margin-top:10px}
 .upload .bar{height:6px}
 .now{display:flex;align-items:center;gap:10px}
+.vol{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:14px;font-weight:600}
+.vol input{flex:1}
+.vol b{min-width:42px;text-align:right;font-variant-numeric:tabular-nums}
+.ring .vol{margin-top:14px}
+.ring input[type=range]{accent-color:var(--accent-ink)}
+.search{position:relative;margin-bottom:4px}
+.search input{padding-left:38px}
+.search:before{content:"";position:absolute;left:14px;top:15px;width:11px;height:11px;
+  border:2px solid var(--muted);border-radius:50%}
+.search:after{content:"";position:absolute;left:27px;top:28px;width:7px;height:2px;
+  background:var(--muted);transform:rotate(45deg)}
+input[type=search]{-webkit-appearance:none;appearance:none}
 .now span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sheet{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;z-index:20}
 .sheet-body{background:var(--card);width:100%;max-width:560px;margin:0 auto;border-radius:20px 20px 0 0;
@@ -137,6 +149,7 @@ select,input[type=text],input[type=password]{width:100%;min-height:46px;padding:
       <button class="btn" id="btnSnooze">Snooze</button>
       <button class="btn primary" id="btnStop">Turn off</button>
     </div>
+    <label class="vol" id="ringVolRow">Volume <input type="range" class="liveVol" min="5" max="100"><b class="liveVolOut"></b></label>
   </div>
 
   <nav class="tabs">
@@ -162,18 +175,26 @@ select,input[type=text],input[type=password]{width:100%;min-height:46px;padding:
       <p class="muted small" style="margin-bottom:0">MP3 files only. On iPhone, save them to the Files app first.
         A different song plays each morning until every song has played once.</p>
     </div>
-    <div class="card now hidden" id="nowBar">
-      <span id="nowText"></span>
-      <button class="btn small" id="btnStopPreview">Stop</button>
+    <div class="card hidden" id="nowBar">
+      <div class="now">
+        <span id="nowText"></span>
+        <button class="btn small" id="btnStopPreview">Stop</button>
+      </div>
+      <label class="vol">Volume <input type="range" class="liveVol" min="5" max="100"><b class="liveVolOut"></b></label>
     </div>
-    <div class="card" id="songCard"><div id="songList"></div></div>
+    <div class="card" id="songCard">
+      <div class="search"><input type="search" id="songSearch" placeholder="Search songs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Search songs"></div>
+      <div class="muted small hidden" id="searchInfo" style="margin-top:8px"></div>
+      <div id="songList"></div>
+    </div>
   </section>
 
   <section id="tab-settings" class="hidden">
     <div class="card">
       <h3>Alarm sound</h3>
-      <label class="field"><span>Loudest volume <b id="volOut"></b></span>
-        <input type="range" id="setVolume" min="5" max="100"></label>
+      <label class="field"><span>Loudest volume <b id="volOut" class="liveVolOut"></b></span>
+        <input type="range" id="setVolume" class="liveVol" min="5" max="100"></label>
+      <p class="muted small" style="margin:-6px 0 0">Changes right away, even while a song is playing.</p>
       <label class="field"><span>Fade in</span>
         <select id="setRamp">
           <option value="0">Off, start at full volume</option>
@@ -313,6 +334,8 @@ async function poll() {
       $("#btnSnooze").classList.add("hidden");
     } else ring.classList.add("hidden");
 
+    $("#ringVolRow").classList.toggle("hidden", st.state !== "ringing");
+    if (typeof st.volume === "number") showVolume(st.volume, false);
     $("#nowBar").classList.toggle("hidden", st.state !== "preview");
     $("#nowText").textContent = "Playing: " + (st.nowPlaying || "");
     $("#devInfo").innerHTML =
@@ -396,6 +419,39 @@ $("#edDelete").onclick = async () => {
 // ---------- music ----------
 const mb = b => b >= 1073741824 ? (b / 1073741824).toFixed(1) + " GB"
   : (b / 1048576).toFixed(b < 10485760 ? 1 : 0) + " MB";
+let songs = [];
+// Compare letters and digits only, so "dont stop" also finds "Don_t Stop.mp3"
+// (curly apostrophes become "_" when a song is uploaded) and "mr brightside"
+// finds "Mr. Brightside"
+const squash = s => s.toLowerCase().replace(/\.mp3$/, "").replace(/[^a-z0-9]+/g, "");
+function renderSongs() {
+  const raw = $("#songSearch").value.trim();
+  const words = raw.split(/\s+/).map(squash).filter(Boolean);
+  const shown = songs.map((s, i) => ({s, i})).filter(({s}) => {
+    const n = squash(s.name);
+    return words.every(w => n.includes(w));
+  });
+  const q = raw;
+  const info = $("#searchInfo");
+  info.classList.toggle("hidden", !q);
+  info.textContent = shown.length ? shown.length + " of " + songs.length + " songs" : "No songs match \u201c" + $("#songSearch").value.trim() + "\u201d";
+  const list = $("#songList");
+  list.innerHTML = shown.map(({s, i}) =>
+    '<div class="song"><div class="n">' + esc(s.name.replace(/\.mp3$/i, "")) +
+    '<div class="s">' + mb(s.size) + '</div></div>' +
+    '<button class="icon-btn" data-play="' + i + '" aria-label="Play">&#9654;</button>' +
+    '<button class="icon-btn del" data-del="' + i + '" aria-label="Delete">&#10005;</button></div>').join("");
+  list.querySelectorAll("[data-play]").forEach(b => b.onclick = async () => {
+    try { await api("/api/preview", {name: songs[+b.dataset.play].name}); setTimeout(poll, 400); }
+    catch (e) { toast(e.message); }
+  });
+  list.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    const s = songs[+b.dataset.del];
+    if (!confirm('Delete "' + s.name.replace(/\.mp3$/i, "") + '"?')) return;
+    try { await api("/api/song-delete", {name: s.name}); toast("Deleted"); loadSongs(); }
+    catch (e) { toast(e.message); }
+  });
+}
 async function loadSongs() {
   try {
     const j = await api("/api/songs");
@@ -404,25 +460,12 @@ async function loadSongs() {
     $("#storeText").textContent = !j.sdOk ? "No SD card found. Songs can't be added until one is inserted."
       : j.songs.length + " song" + (j.songs.length === 1 ? "" : "s") + " · " + mb(j.total - j.used) + " free";
     $("#fileInput").disabled = !j.sdOk;
-    const list = $("#songList");
-    $("#songCard").classList.toggle("hidden", !j.songs.length);
-    list.innerHTML = j.songs.map((s, i) =>
-      '<div class="song"><div class="n">' + esc(s.name.replace(/\.mp3$/i, "")) +
-      '<div class="s">' + mb(s.size) + '</div></div>' +
-      '<button class="icon-btn" data-play="' + i + '" aria-label="Play">&#9654;</button>' +
-      '<button class="icon-btn del" data-del="' + i + '" aria-label="Delete">&#10005;</button></div>').join("");
-    list.querySelectorAll("[data-play]").forEach(b => b.onclick = async () => {
-      try { await api("/api/preview", {name: j.songs[+b.dataset.play].name}); setTimeout(poll, 400); }
-      catch (e) { toast(e.message); }
-    });
-    list.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
-      const s = j.songs[+b.dataset.del];
-      if (!confirm('Delete "' + s.name.replace(/\.mp3$/i, "") + '"?')) return;
-      try { await api("/api/song-delete", {name: s.name}); toast("Deleted"); loadSongs(); }
-      catch (e) { toast(e.message); }
-    });
+    songs = j.songs;
+    $("#songCard").classList.toggle("hidden", !songs.length);
+    renderSongs();
   } catch (e) { toast(e.message); }
 }
+$("#songSearch").oninput = renderSongs;
 function uploadOne(file, row) {
   return new Promise(resolve => {
     const xhr = new XMLHttpRequest(), fd = new FormData();
@@ -467,7 +510,7 @@ async function loadSettings() {
     settings = (await api("/api/settings")).settings;
     st.use24h = settings.use24h;
     fillHours($("#setNightStart")); fillHours($("#setNightEnd"));
-    $("#setVolume").value = settings.volume; $("#volOut").textContent = settings.volume + "%";
+    showVolume(settings.volume, true);
     $("#setRamp").value = settings.rampSec; $("#setSnooze").value = settings.snoozeMin;
     $("#set24").checked = settings.use24h;
     $("#setDay").value = settings.dayBright; $("#setNight").value = settings.nightBright;
@@ -487,7 +530,38 @@ async function saveSettings(quiet) {
     return true;
   } catch (e) { toast(e.message); return false; }
 }
-$("#setVolume").oninput = e => $("#volOut").textContent = e.target.value + "%";
+// ---------- live volume ----------
+// Every volume slider (ringing card, now-playing bar, settings) is the same
+// setting. Moving one saves it and changes the sound straight away.
+let volDragging = false, volSending = false, volPending = null, volHoldUntil = 0;
+function showVolume(v, force) {
+  if (!force && (volDragging || volSending || Date.now() < volHoldUntil)) return;  // don't fight the finger
+  document.querySelectorAll(".liveVol").forEach(el => { if (!(volDragging && el === document.activeElement)) el.value = v; });
+  document.querySelectorAll(".liveVolOut").forEach(el => el.textContent = v + "%");
+  settings.volume = v;
+}
+async function sendVolume(v) {
+  volPending = v;
+  if (volSending) return;             // the loop below sends the newest value next
+  volSending = true;
+  while (volPending !== null) {
+    const x = volPending; volPending = null;
+    try { await api("/api/volume", {volume: x}); } catch (e) { toast(e.message); break; }
+  }
+  volSending = false;
+  volHoldUntil = Date.now() + 1500;   // let the next status poll catch up
+}
+document.querySelectorAll(".liveVol").forEach(el => {
+  el.addEventListener("input", () => {
+    volDragging = true;
+    const v = +el.value;
+    document.querySelectorAll(".liveVol").forEach(o => { if (o !== el) o.value = v; });
+    document.querySelectorAll(".liveVolOut").forEach(o => o.textContent = v + "%");
+    settings.volume = v;
+    sendVolume(v);
+  });
+  el.addEventListener("change", () => { volDragging = false; sendVolume(+el.value); });
+});
 $("#saveSettings").onclick = () => saveSettings(false);
 $("#btnTest").onclick = async () => {
   if (!await saveSettings(true)) return;

@@ -210,6 +210,7 @@ void setupRoutes() {
     {
       std::lock_guard<std::recursive_mutex> lock(Storage::mutex());
       doc["use24h"] = Storage::settings().use24h;
+      doc["volume"] = Storage::settings().volume;
     }
     doc["ssid"] = Net::ssid();
     doc["ip"] = Net::ip();
@@ -243,6 +244,23 @@ void setupRoutes() {
     Storage::settingsFromJson(json.as<JsonObjectConst>());
     Storage::saveSettings();
     sendSettings(r);
+  });
+
+  // Volume only: saved and applied right away, even to a song that's playing
+  addJsonPost("/api/volume", [](AsyncWebServerRequest* r, JsonVariant& json) {
+    int v = json["volume"] | -1;
+    if (v < 0) return sendError(r, "Missing volume");
+    v = constrain(v, 5, 100);
+    {
+      std::lock_guard<std::recursive_mutex> lock(Storage::mutex());
+      Storage::settings().volume = (uint8_t)v;
+    }
+    Storage::saveSettings();
+    App::post(AppAction::VolumeChanged);
+    JsonDocument doc;
+    doc["ok"] = true;
+    doc["volume"] = v;
+    sendJson(r, doc);
   });
 
   // Songs
